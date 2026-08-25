@@ -45,3 +45,87 @@ raise `HTTPException(422, ...)`).
 - **Actual:** …
 - **Evidence:** (screenshot / failing test / response body)
 - **Status:** OPEN / IN PROGRESS / FIXED / VERIFIED / CLOSED
+
+
+## BUG-002 — `/ask` returns HTTP 500 when the LLM provider call fails, instead of degrading gracefully
+
+- **Severity:** High · **Priority:** High · **Type:** Error handling / resilience
+- **Component:** `POST /ask` — `src/eih/generation.py` (`_groq`, line ~84) via `pipeline.py` → `api.py`
+- **Environment:** local, `provider: auto` with `GROQ_API_KEY` set, `groq_model: openai/gpt-oss-120b`, main branch
+- **Found by:** automated API contract and performance testing (k6 load run + `/docs` manual verification)
+
+### Steps to reproduce
+1. Start the API with an **invalid or expired** `GROQ_API_KEY` set in the environment:
+   ```
+   $env:GROQ_API_KEY="gsk_invalid_key"
+   python -m uvicorn eih.api:app --host 127.0.0.1 --port 8000
+   ```
+2. Ingest the sample corpus: `POST /ingest` with `{"path": "data/sample"}` → 200 OK (5 documents, 14 chunks).
+3. Call `POST /ask` with `{"question": "How are JWTs validated?"}`.
+
+### Expected
+Retrieval succeeds independently of generation, so the service should either:
+- return **200** with the retrieved citations and a clear notice that generation is unavailable
+  (the same graceful degradation the `echo` provider already implements), or
+- return a **502 / 503** with an explanatory message indicating an upstream LLM provider failure.
+
+Either way the client should be able to distinguish "the LLM provider is unavailable"
+from "this service is broken."
+
+### Actual
+**HTTP 500 Internal Server Error** with an empty, non-JSON body (`Internal Server Error`,
+`content-type: text/plain`). The response gives the client no indication of the cause, and
+the successfully-retrieved citations are discarded.
+
+Server traceback (abridged):
+```
+File "src/eih/generation.py", line 84, in _groq
+    r.raise_for_status()
+requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url:
+https://api.groq.com/openai/v1/chat/completions
+```
+
+### Root cause
+`_groq()` calls `r.raise_for_status()` with no surrounding exception handling. Any non-2xx
+response from the provider — `401` (bad key), `404` (deprecated/renamed model), `429`
+(rate limit) — raises `requests.exceptions.HTTPError`, which propagates unhandled through
+`pipeline.ask()` and the FastAPI route, and FastAPI converts it into a generic 500.
+
+This makes an **upstream dependency failure** indistinguishable from an internal defect, and
+throws away the retrieval work that already succeeded.
+
+### Impact
+- The entire `/ask` endpoint fails whenever the LLM provider is unavailable, even though
+  retrieval — the core RAG capability — is healthy and returning correct sources.
+- Rate limiting (`429`) on a free provider tier will cause intermittent 500s in production.
+- Provider model deprecation silently breaks the service: a `404` on a renamed model ID
+  produces the same opaque 500 (observed with the now-deprecated `llama-3.3-70b-versatile`).
+- Monitoring and alerting cannot distinguish provider outages from application bugs.
+
+### Suggested fix
+Wrap the provider call and fall back to the retrieval-only response path:
+
+```python
+try:
+    r = requests.post(..., timeout=self.cfg.timeout)
+    r.raise_for_status()
+except requests.exceptions.RequestException as exc:
+    logger.warning("LLM provider unavailable, degrading to retrieval-only: %s", exc)
+    return _retrieval_only_notice()   # same output shape the echo provider returns
+```
+
+Optionally surface the degraded state to the client (e.g. a `generation_available: false`
+field in the response) so callers can render appropriately.
+
+### Evidence
+- Server traceback above (`401 Client Error`, `generation.py:84`).
+- k6 load run: `status is 200` and `has an answer` passed on the echo provider, while the
+  same requests returned 500 with a failing provider — confirming retrieval is unaffected.
+- `POST /ingest` returned 200 with 14 chunks immediately before the failing `/ask` call,
+  proving the index was populated and retrieval was healthy.
+
+### Regression test
+Once fixed, assert that `/ask` returns a non-5xx status and preserves citations when the
+provider is unreachable (simulate with an invalid key or a mocked provider error).
+
+**Status:** OPEN
