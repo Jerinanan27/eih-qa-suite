@@ -132,4 +132,4 @@ provider is unreachable (simulate with an invalid key or a mocked provider error
 
 
 **Tracking issue:** https://github.com/Jerinanan27/engineering-intelligence-hub/issues/1
-**Tracking issue:** https://github.com/Jerinanan27/engineering-intelligence-hub/issues/2
+                   https://github.com/Jerinanan27/engineering-intelligence-hub/issues/2
