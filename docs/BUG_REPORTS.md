@@ -129,3 +129,7 @@ Once fixed, assert that `/ask` returns a non-5xx status and preserves citations 
 provider is unreachable (simulate with an invalid key or a mocked provider error).
 
 **Status:** OPEN
+
+
+**Tracking issue:** https://github.com/Jerinanan27/engineering-intelligence-hub/issues/1
+**Tracking issue:** https://github.com/Jerinanan27/engineering-intelligence-hub/issues/2
