@@ -1,0 +1,152 @@
+{
+  "info": {
+    "name": "Engineering Intelligence Hub - API Tests",
+    "description": "Contract + negative tests for the EIH FastAPI service. Set {{base_url}} in the environment (default http://localhost:8000). Run headless with: newman run api/engineering-intelligence-hub.postman_collection.json -e api/postman_environment.json",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health - liveness",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/healthz"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('status is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));",
+              "pm.test('responds under 500ms', () => pm.expect(pm.response.responseTime).to.be.below(500));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ingest sample corpus",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"path\": \"data/sample\"}"
+        },
+        "url": "{{base_url}}/ingest"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('returns a JSON object of ingestion stats', () => pm.expect(pm.response.json()).to.be.an('object'));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ask - happy path (JWT question)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"question\": \"How are JWTs validated?\"}"
+        },
+        "url": "{{base_url}}/ask"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const b = pm.response.json();",
+              "pm.test('has answer, question, citations', () => { pm.expect(b).to.have.property('answer'); pm.expect(b).to.have.property('citations'); });",
+              "pm.test('answer is non-empty', () => pm.expect(b.answer).to.be.a('string').and.not.empty);",
+              "pm.test('at least one citation', () => pm.expect(b.citations.length).to.be.above(0));",
+              "pm.test('citation has required schema', () => { const c = b.citations[0]; ['index','doc_id','source_type','score','preview'].forEach(f => pm.expect(c).to.have.property(f)); });",
+              "pm.test('answer is grounded in an auth source', () => pm.expect(b.citations.some(c => String(c.doc_id).includes('auth'))).to.be.true);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ask - negative: missing question (expect 422)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{}"
+        },
+        "url": "{{base_url}}/ask"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('422 validation error', () => pm.response.to.have.status(422));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ask - negative: invalid source_type (BUG-001)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"question\": \"How are JWTs validated?\", \"source_types\": [\"banana\"]}"
+        },
+        "url": "{{base_url}}/ask"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// BUG-001: server currently returns 500 for an invalid enum value.",
+              "// We assert the CURRENT (buggy) behavior so the collection passes green,",
+              "// and track the desired 4xx contract via the pytest xfail + docs/BUG_REPORTS.md.",
+              "// After the fix lands, change this to: pm.expect(pm.response.code).to.be.below(500)",
+              "pm.test('[BUG-001] documents current 500 on invalid source_type', () => pm.expect(pm.response.code).to.eql(500));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}

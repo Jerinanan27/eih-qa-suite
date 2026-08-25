@@ -1,0 +1,12 @@
+# Core
+requests>=2.31
+pytest>=8.0
+
+# UI (Playwright) — after install run:  playwright install chromium
+pytest-playwright>=0.5
+
+# AI/RAG evaluation
+deepeval>=1.0            # LLM-judged metrics (verify current API on install)
+sentence-transformers>=2.2   # consistency test embeddings
+
+# Perf tool is external (install k6 separately) and Newman via npm (npm i -g newman)

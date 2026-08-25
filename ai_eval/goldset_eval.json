@@ -1,0 +1,52 @@
+[
+  {
+    "question": "How are JWTs validated?",
+    "ground_truth": "The gateway extracts the Bearer token, auth-svc verifies its signature against the public JWKS, and the exp, iss, and aud claims are checked before the decoded claims are forwarded downstream.",
+    "expected_source_ids": ["auth-service", "auth"]
+  },
+  {
+    "question": "What algorithm signs the access tokens?",
+    "ground_truth": "Access tokens are signed with RS256 (RSA with SHA-256).",
+    "expected_source_ids": ["auth-service", "auth"]
+  },
+  {
+    "question": "How long do access tokens last before they expire?",
+    "ground_truth": "Access tokens expire after 15 minutes; refresh tokens expire after 7 days.",
+    "expected_source_ids": ["auth-service"]
+  },
+  {
+    "question": "Where is the JWT signing private key stored?",
+    "ground_truth": "The private signing key is stored in Vault at the path secret/auth/jwt.",
+    "expected_source_ids": ["auth-service"]
+  },
+  {
+    "question": "How often do the JWT signing keys rotate?",
+    "ground_truth": "Signing keys rotate every 90 days, and the previous public key is kept in the JWKS for one extra rotation window.",
+    "expected_source_ids": ["auth-service"]
+  },
+  {
+    "question": "What must the iss claim equal for a token to be accepted?",
+    "ground_truth": "The iss claim must equal https://auth.internal.",
+    "expected_source_ids": ["auth-service", "auth"]
+  },
+  {
+    "question": "What caused the auth outage on November 3rd?",
+    "ground_truth": "The api-gateway cached the JWKS for 24 hours while auth-svc rotated signing keys early during a key-compromise drill, so the gateway kept validating tokens against the retired public key and returned 401s.",
+    "expected_source_ids": ["INC-2025-014"]
+  },
+  {
+    "question": "How was incident INC-2025-014 resolved?",
+    "ground_truth": "The gateway JWKS cache TTL was reduced to 10 minutes, a forced refresh was added on consecutive signature-validation failures, and an alert was added when the active signing key id is missing from the cached JWKS.",
+    "expected_source_ids": ["INC-2025-014"]
+  },
+  {
+    "question": "How do I roll back a production deploy?",
+    "ground_truth": "Rollbacks are performed with argocd app rollback auth-svc <revision>.",
+    "expected_source_ids": ["deployment"]
+  },
+  {
+    "question": "What is required before deploying to production?",
+    "ground_truth": "A production deploy requires a green staging run plus one approval, and health checks on /healthz must return 200 within 30 seconds or the rollout is aborted.",
+    "expected_source_ids": ["deployment"]
+  }
+]

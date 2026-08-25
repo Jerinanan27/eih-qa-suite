@@ -1,0 +1,61 @@
+name: QA Suite
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  # Fast, deterministic job: starts the SUT with the echo provider (no LLM key),
+  # then runs API contract tests + the Postman collection via Newman.
+  api-and-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The SUT lives in a separate repo; check it out alongside the suite.
+      - name: Check out SUT (Engineering Intelligence Hub)
+        uses: actions/checkout@v4
+        with:
+          repository: Jerinanan27/engineering-intelligence-hub
+          path: sut
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install SUT + test deps
+        run: |
+          pip install -e ./sut
+          pip install requests pytest
+
+      - name: Start API (echo provider — no LLM key needed)
+        working-directory: sut
+        run: |
+          nohup uvicorn eih.api:app --host 0.0.0.0 --port 8000 > api.log 2>&1 &
+          for i in $(seq 1 120); do
+            curl -sf http://localhost:8000/healthz && break
+            sleep 2
+          done
+
+      - name: API contract tests
+        env:
+          BASE_URL: http://localhost:8000
+        run: pytest api/ -v
+
+      - name: Newman (Postman) run
+        run: |
+          npm i -g newman
+          newman run api/engineering-intelligence-hub.postman_collection.json \
+            -e api/postman_environment.json --reporters cli
+
+  # Perf + UI + LLM-judged eval are heavier / need a live model or browser,
+  # so they run on demand rather than on every push. Uncomment to enable nightly.
+  # perf:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Install k6
+  #       run: |
+  #         sudo gpg -k
+  #         sudo curl -sSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+  #         echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+  #         sudo apt-get update && sudo apt-get install k6
+  #     - run: k6 run -e BASE_URL=${{ secrets.SUT_URL }} perf/ask_load_test.js
